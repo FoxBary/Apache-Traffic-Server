@@ -1,6 +1,14 @@
 #!/bin/bash
 
 #=========================#
+# 日志记录函数            #
+#=========================#
+LOG_FILE="/var/log/vmshell_install.log"
+log() {
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+}
+
+#=========================#
 # 安装确认提示           #
 #=========================#
 echo "=============================================================="
@@ -58,24 +66,149 @@ echo "🔢 CPU 核心数: $CPU_CORES"
 echo "🧮 内存总量: ${MEM_TOTAL_MB} MB"
 echo "💽 可用磁盘: ${DISK_AVAIL_MB} MB"
 echo "=============================================================="
+log "系统信息: $DISTRO $VERSION, 内核 $KERNEL, 架构 $ARCH, CPU $CPU_CORES 核, 内存 ${MEM_TOTAL_MB}MB, 磁盘 ${DISK_AVAIL_MB}MB"
 
 # 判断是否满足要求
 if [[ $CPU_CORES -lt $MIN_CPU || $MEM_TOTAL_MB -lt $MIN_MEM_MB || $DISK_AVAIL_MB -lt $MIN_DISK_MB ]]; then
     echo "❌ 当前系统资源不足！建议至少：$MIN_CPU CPU，${MIN_MEM_MB}MB 内存，${MIN_DISK_MB}MB 磁盘。"
-    echo "请升级服务器配置后重试。"
+    log "资源不足，退出安装"
     exit 1
 fi
 
 read -p "✅ 资源足够，是否继续安装 Apache Traffic Server？(y/n): " confirm2
 if [[ "$confirm2" != "y" ]]; then
     echo "已取消安装，感谢使用 VMSHELL 脚本！"
+    log "用户取消安装"
     exit 0
 fi
+
+#=========================#
+# 第一步：整合系统磁盘    #
+#=========================#
+echo "[INFO] 正在检查并整合系统磁盘..."
+log "开始磁盘整合"
+
+if [[ "$DISTRO" == "debian" && "$VERSION" =~ ^(11|12)$ ]]; then
+    if [ -b /dev/vda1 ]; then
+        log "检测到 Debian $VERSION，执行 resize2fs /dev/vda1"
+        resize2fs -f /dev/vda1 >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            echo "✅ 磁盘 /dev/vda1 整合成功"
+            log "磁盘 /dev/vda1 整合成功"
+        else
+            echo "❌ 磁盘 /dev/vda1 整合失败，请检查分区状态"
+            log "磁盘 /dev/vda1 整合失败"
+            exit 1
+        fi
+    else
+        echo "❌ 未找到 /dev/vda1 分区，跳过磁盘整合"
+        log "未找到 /dev/vda1 分区"
+    fi
+elif [[ "$DISTRO" == "ubuntu" && "$VERSION" == "20.04" ]]; then
+    if [ -b /dev/vda2 ]; then
+        log "检测到 Ubuntu $VERSION，执行 resize2fs /dev/vda2"
+        resize2fs -f /dev/vda2 >/dev/null 2>&1
+        if [ $? -eq 0 ]; then
+            echo "✅ 磁盘 /dev/vda2 整合成功"
+            log "磁盘 /dev/vda2 整合成功"
+        else
+            echo "❌ 磁盘 /dev/vda2 整合失败，请检查分区状态"
+            log "磁盘 /dev/vda2 整合失败"
+            exit 1
+        fi
+    else
+        echo "❌ 未找到 /dev/vda2 分区，跳过磁盘整合"
+        log "未找到 /dev/vda2 分区"
+    fi
+else
+    echo "ℹ️ 当前系统无需磁盘整合，跳过此步骤"
+    log "无需磁盘整合，跳过"
+fi
+
+#=========================#
+# 第二步：安装 BBR+FQ     #
+#=========================#
+echo "[INFO] 正在安装 BBR+FQ..."
+log "开始安装 BBR+FQ"
+
+# 下载并执行 BBR 脚本
+wget --no-check-certificate https://github.com/teddysun/across/raw/master/bbr.sh -O bbr.sh >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+    chmod +x bbr.sh
+    log "BBR 脚本下载成功"
+else
+    echo "❌ 下载 BBR 脚本失败，请检查网络连接"
+    log "BBR 脚本下载失败"
+    exit 1
+fi
+
+# 模拟按键输入以自动执行脚本
+echo -e "\n" | ./bbr.sh >/dev/null 2>&1
+if [ $? -eq 0 ]; then
+    echo "✅ BBR+FQ 安装成功"
+    log "BBR+FQ 安装成功"
+else
+    echo "❌ BBR+FQ 安装失败，请检查日志 $LOG_FILE"
+    log "BBR+FQ 安装失败"
+    exit 1
+fi
+
+#=========================#
+# 第三步：服务器性能检测  #
+#=========================#
+echo "[INFO] 正在检测服务器配置和性能..."
+log "开始服务器性能检测"
+
+# 安装 sysbench（如果未安装）
+if ! command -v sysbench >/dev/null; then
+    if [[ "$DISTRO" == "debian" || "$DISTRO" == "ubuntu" ]]; then
+        apt install -y sysbench >/dev/null 2>&1
+    elif [[ "$DISTRO" == "centos" || "$DISTRO" == "rocky" ]]; then
+        yum install -y sysbench >/dev/null 2>&1
+    fi
+fi
+
+# 收集网络信息
+PUBLIC_IP=$(curl -s ifconfig.me)
+NET_IFACE=$(ip link | awk -F: '$0 !~ "lo|vir|docker|br-|veth|wg" {print $2; exit}' | xargs)
+NET_SPEED=$(ethtool "$NET_IFACE" 2>/dev/null | grep Speed | awk '{print $2}' || echo "未知")
+
+# 测试网络延迟（到 Google DNS）
+PING_RESULT=$(ping -c 4 8.8.8.8 | tail -1 | awk '{print $4}' | cut -d '/' -f 2)
+
+# 测试磁盘性能
+DISK_WRITE=$(dd if=/dev/zero of=/tmp/testfile bs=1M count=100 conv=fdatasync 2>&1 | grep -o '[0-9.]\+ [MG]B/s' | tail -1)
+DISK_READ=$(dd if=/tmp/testfile of=/dev/null bs=1M count=100 2>&1 | grep -o '[0-9.]\+ [MG]B/s' | tail -1)
+rm -f /tmp/testfile
+
+# 测试 CPU 和内存性能
+if command -v sysbench >/dev/null; then
+    CPU_SCORE=$(sysbench cpu --threads=1 run | grep "events per second" | awk '{print $4}')
+    MEM_SCORE=$(sysbench memory --memory-block-size=1M --memory-total-size=10G run | grep "MiB transferred" | awk '{print $3}' | tr -d '(')
+else
+    CPU_SCORE="未安装 sysbench，无法测试"
+    MEM_SCORE="未安装 sysbench，无法测试"
+fi
+
+# 输出性能报告
+echo "=============================================================="
+echo "📊 服务器性能检测报告"
+echo "=============================================================="
+echo "🌐 公网 IP: $PUBLIC_IP"
+echo "📡 网络接口: $NET_IFACE (速度: $NET_SPEED)"
+echo "⏱️  到 8.8.8.8 延迟: ${PING_RESULT:-未知} ms"
+echo "💾 磁盘写入速度: ${DISK_WRITE:-未知}"
+echo "💿 磁盘读取速度: ${DISK_READ:-未知}"
+echo "🧠 CPU 性能: ${CPU_SCORE:-未知} events/sec"
+echo "🧮 内存性能: ${MEM_SCORE:-未知} MiB/sec"
+echo "=============================================================="
+log "性能检测完成: IP=$PUBLIC_IP, 延迟=${PING_RESULT:-未知}ms, 磁盘写=$DISK_WRITE, 磁盘读=$DISK_READ, CPU=$CPU_SCORE, 内存=$MEM_SCORE"
 
 #=========================#
 # 安装依赖（分发版判断）  #
 #=========================#
 echo "[INFO] 正在安装依赖项..."
+log "开始安装依赖"
 
 install_deps_linux() {
     if command -v apt >/dev/null; then
@@ -99,31 +232,35 @@ install_deps_linux() {
         pcre2 openssl curl lua51 zlib brotli bash node npm go
     else
         echo "❌ 暂不支持该系统的依赖自动安装，请手动安装依赖。"
+        log "不支持的系统，依赖安装失败"
         exit 1
     fi
 }
 
-install_deps_linux || exit 1
+install_deps_linux || { log "依赖安装失败"; exit 1; }
 
 #=========================#
 # 下载 + 编译 + 安装 ATS  #
 #=========================#
 echo "[INFO] 开始下载并编译安装 Apache Traffic Server..."
-cd /usr/local/src || exit 1
-wget https://downloads.apache.org/trafficserver/trafficserver-10.0.0.tar.bz2 || exit 1
+log "开始安装 ATS"
+cd /usr/local/src || { log "无法进入 /usr/local/src"; exit 1; }
+wget https://downloads.apache.org/trafficserver/trafficserver-10.0.0.tar.bz2 || { log "ATS 下载失败"; exit 1; }
 tar -xjf trafficserver-10.0.0.tar.bz2
-cd trafficserver-10.0.0 || exit 1
+cd trafficserver-10.0.0 || { log "无法进入 ATS 目录"; exit 1; }
 
-cmake -B build -DCMAKE_BUILD_TYPE=Release || exit 1
-cmake --build build || exit 1
-cmake --install build || exit 1
+cmake -B build -DCMAKE_BUILD_TYPE=Release || { log "ATS cmake 配置失败"; exit 1; }
+cmake --build build || { log "ATS 编译失败"; exit 1; }
+cmake --install build || { log "ATS 安装失败"; exit 1; }
 
 # 启动 ATS
 /usr/local/bin/trafficserver start
+log "ATS 启动成功"
 
 # 添加 systemd 启动服务
 if [[ "$OS_NAME" == "Linux" && -d /etc/systemd/system ]]; then
     echo "[INFO] 添加 systemd 启动服务..."
+    log "添加 ATS systemd 服务"
     cat >/etc/systemd/system/trafficserver.service <<EOF
 [Unit]
 Description=Apache Traffic Server
@@ -144,6 +281,7 @@ EOF
     systemctl daemon-reload
     systemctl enable trafficserver
     systemctl start trafficserver
+    log "ATS systemd 服务配置成功"
 fi
 
 #=========================#
@@ -174,7 +312,8 @@ echo "官方网站：https://vmshell.com/    | https://tototel.com"
 echo "Telegram 讨论：https://t.me/vmsus"
 echo "电话支持：+1 (469) 278-6367"
 echo "Email1：admin@vmshell.com"
-echo "Email2：vmshell.inc@gmail.com"
+echo "Email2：admin@vmshell.com"
 echo ""
 echo "💡 感谢您使用 VMSHELL 一键安装脚本！我们 24 小时为您服务。"
 echo "=============================================================="
+log "安装完成，脚本执行成功"
