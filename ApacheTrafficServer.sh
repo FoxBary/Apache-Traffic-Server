@@ -19,6 +19,7 @@ read -p "是否继续安装？请输入 y 继续，n 退出 [y/n]: " confirm
 
 if [[ "$confirm" != "y" ]]; then
     echo "已取消安装。感谢您使用 VMSHELL 脚本！"
+    log "用户取消安装"
     exit 0
 fi
 
@@ -26,7 +27,7 @@ fi
 #    通用信息检测模块     #
 #=========================#
 
-# 最低资源要求
+# 建议资源要求
 MIN_CPU=2
 MIN_MEM_MB=2048
 MIN_DISK_MB=2048
@@ -57,7 +58,7 @@ if [[ -z "$MEM_TOTAL_MB" ]]; then
 fi
 DISK_AVAIL_MB=$(df / | tail -1 | awk '{print int($4 / 1024)}')
 
-# 输出系统信息
+# 输出系统信息和建议资源
 echo "=============================================================="
 echo "🧠  当前操作系统: $DISTRO $VERSION"
 echo "🖥️   内核版本: $KERNEL"
@@ -65,22 +66,9 @@ echo "⚙️   架构: $ARCH"
 echo "🔢 CPU 核心数: $CPU_CORES"
 echo "🧮 内存总量: ${MEM_TOTAL_MB} MB"
 echo "💽 可用磁盘: ${DISK_AVAIL_MB} MB"
+echo "📋 建议最低资源: $MIN_CPU CPU 核心, ${MIN_MEM_MB} MB 内存, ${MIN_DISK_MB} MB 磁盘"
 echo "=============================================================="
 log "系统信息: $DISTRO $VERSION, 内核 $KERNEL, 架构 $ARCH, CPU $CPU_CORES 核, 内存 ${MEM_TOTAL_MB}MB, 磁盘 ${DISK_AVAIL_MB}MB"
-
-# 判断是否满足要求
-if [[ $CPU_CORES -lt $MIN_CPU || $MEM_TOTAL_MB -lt $MIN_MEM_MB || $DISK_AVAIL_MB -lt $MIN_DISK_MB ]]; then
-    echo "❌ 当前系统资源不足！建议至少：$MIN_CPU CPU，${MIN_MEM_MB}MB 内存，${MIN_DISK_MB}MB 磁盘。"
-    log "资源不足，退出安装"
-    exit 1
-fi
-
-read -p "✅ 资源足够，是否继续安装 Apache Traffic Server？(y/n): " confirm2
-if [[ "$confirm2" != "y" ]]; then
-    echo "已取消安装，感谢使用 VMSHELL 脚本！"
-    log "用户取消安装"
-    exit 0
-fi
 
 #=========================#
 # 第一步：整合系统磁盘    #
@@ -225,7 +213,7 @@ install_deps_linux() {
         yum install -y gcc gcc-c++ make cmake autoconf automake libtool openssl-devel \
         pcre-devel pcre2-devel libcap-devel hwloc-devel ncurses-devel libcurl-devel \
         expat-devel sqlite-devel zlib-devel luajit-devel libunwind-devel \
-        brotli-devel xz-devel libyaml-devel tcl-devel wget curl unzip vim \
+        brotli-devel xz-devel libyaml-devel tcl-dev wget curl unzip vim \
         git screen zip gnupg file socat bind-utils docker-compose golang nodejs npm
     elif [ "$DISTRO" = "freebsd" ]; then
         pkg install -y gcc gmake autoconf automake libtool cmake pkgconf pcre \
@@ -296,7 +284,7 @@ echo "VMSHELL INC 是一家成立于2021年的美国云计算服务公司，总�
 echo "公司旗下品牌包括 VmShell 和 ToToTel，业务覆盖亚洲、美洲和欧洲，致力于为企业提供高效、稳定的网络解决方案。"
 echo ""
 echo "▶ 主打服务：VPS、独立服务器、云端管理平台"
-echo "▶ 核心地区：香港中国移动CMI线路、美国圣何塞国际带宽"
+echo "▶ 核心地区：香港 막 国移动CMI线路、美国圣何塞国际带宽"
 echo "▶ 支持：流媒体解锁（Netflix、TikTok）、SSH管理、云端脚本运维"
 echo "▶ 支付方式：PayPal、支付宝、比特币、USDT 等"
 echo ""
