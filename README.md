@@ -1,3 +1,5 @@
+一键安装脚本:bash <(curl -fsSL https://raw.githubusercontent.com/FoxBary/Apache-Traffic-Server/main/ApacheTrafficServer.sh)
+
 <p><a href="https://linuxword.com/wp-content/uploads/2025/05/e85d8729d2c18216f35c182158a5e119.png"><img class="alignnone size-full wp-image-46283" src="https://linuxword.com/wp-content/uploads/2025/05/e85d8729d2c18216f35c182158a5e119.png" alt="" width="1195" height="1174" /></a></p>
 <p>关于VmShell:<br />
 VMSHELL INC 是一家成立于2021年的美国云计算服务公司，总部位于怀俄明州谢里丹，专注于提供全球数据中心的虚拟机服务器租赁和软件开发服务。公司旗下品牌包括 VmShell 和 ToToTel，业务覆盖亚洲和美洲以及欧洲，致力于为企业提供高效、稳定的网络解决方案。其核心服务包括虚拟私有服务器（VPS）、独立服务器以及云端管理平台，广泛应用于企业业务拓展、流媒体优化和跨境电商等领域。<br />
